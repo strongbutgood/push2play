@@ -37,18 +37,55 @@ namespace PushToPlay
 				{
 					port = ports[idx - 1];
 				}
+				ports = System.IO.Ports.SerialPort.GetPortNames();
 			}
 			await ptp(source, port, CancellationToken.None);
 		}
 
 		static async Task ptp(string source, string port, CancellationToken token)
 		{
-			var serial = new SerialPort(port, 9600, Parity.None, 8, StopBits.One);
-			var writeSemaphore = new SemaphoreSlim(1);
+			ISerialDevice serial = new PicoSerial(port);
 			try
 			{
+				int state = 0; // state 0 = idle, 1 = connected, 2 = starting, 3, 4 = playing, 5 = ending
+				serial.ReadReady += (s, e) =>
+				{
+					var line = ((ISerialDevice)s).ReadLine();
+					switch (line.Trim())
+					{
+						case ".":
+						case "!":
+							if (state == 0)
+							{
+								state = 1;
+								Console.WriteLine("Ready to go, push to play...");
+							}
+							break;
+						case "PLAY":
+							if (state < 2)
+							{
+								state = 2;
+								Console.WriteLine("Start playing");
+							}
+							break;
+						case "START":
+							if (state == 3)
+								state = 4;
+							break;
+						case "END":
+							if (state >= 2)
+								state = 0;
+							break;
+						case "":
+							break;
+						default:
+							Console.WriteLine($"Unknown command: {line}");
+							break;
+					}
+				};
+				serial.Close();
 				serial.Open();
-				var writeTask = hb(serial, writeSemaphore, token);
+				var writeTask = hb(serial, token);
 				while (true)
 				{
 					try
@@ -57,16 +94,19 @@ namespace PushToPlay
 						{
 							serial.Open();
 						}
-						Console.WriteLine("Ready to go, push to play...");
-						var line = serial.ReadLine();
-						if (line.Trim() == "PLAY")
+						if (state == 0)
+							Console.WriteLine("Waiting for heartbeat");
+						if (state == 2)
 						{
-							await play(source, serial, writeSemaphore, token);
+							state = 3;
+							var playTask = play(source, serial, () => state, (s) => state = s, token);
 						}
 					}
 					catch (Exception ex)
 					{
 						Console.WriteLine(ex.Message);
+						serial.Close();
+						await Task.Delay(5000);
 					}
 					await Task.Delay(1000);
 				}
@@ -77,24 +117,23 @@ namespace PushToPlay
 			}
 		}
 
-		static async Task hb(SerialPort serial, SemaphoreSlim writeSemaphore, CancellationToken token)
+		static async Task hb(ISerialDevice serial, CancellationToken token)
 		{
 			while (!token.IsCancellationRequested)
 			{
-				await Task.Delay(1000);
-				await writeSemaphore.WaitAsync();
 				try
 				{
-					serial.Write("H");
+					await Task.Delay(1500);
+					await serial.WriteLine("H", token);
 				}
-				finally
+				catch (OperationCanceledException)
 				{
-					writeSemaphore.Release();
+					// no-op
 				}
 			}
 		}
 
-		static async Task play(string source, SerialPort serial, SemaphoreSlim writeSemaphore, CancellationToken token)
+		static async Task play(string source, ISerialDevice serial, Func<int> getState, Action<int> setState, CancellationToken token)
 		{
 			const string vlc64Path = @"C:\Program Files\VideoLAN\VLC\vlc.exe";
 			const string vlc32Path = @"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe";
@@ -123,30 +162,18 @@ namespace PushToPlay
 				};
 				Console.WriteLine($"Playing at {DateTime.Now}");
 				proc.Start();
-				await writeSemaphore.WaitAsync(token);
-				try
-				{
-					serial.WriteLine("1");
-				}
-				finally
-				{
-					writeSemaphore.Release();
-				}
+				await serial.WriteLine("1", token);
 				await Task.Delay(100, token);
 
 				await tcs.Task;
 				Console.WriteLine($"Done at {DateTime.Now}");
 
-				await writeSemaphore.WaitAsync(token);
-				try
+				while (!await serial.WriteLine("100", token) || getState() == 2)
 				{
-					serial.WriteLine("100");
+					// repeat until the finish is received
+					await Task.Delay(1500, token);
 				}
-				finally
-				{
-					writeSemaphore.Release();
-				}
-				await Task.Delay(100, token);
+				setState(5);
 			}
 			catch (OperationCanceledException)
 			{

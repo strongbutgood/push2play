@@ -18,6 +18,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "push2play", "push2play", "{
 		Arduino\push2play\push2play.ino = Arduino\push2play\push2play.ino
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Pico", "Pico", "{481BA4E6-7E59-48A4-BAAD-80A1EF5EE0DE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "push2play", "push2play", "{E3126FEB-FAE7-4D15-8667-48CC5F03E0D1}"
+	ProjectSection(SolutionItems) = preProject
+		Pico\push2play\main.py = Pico\push2play\main.py
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -35,6 +42,8 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{10EC822B-9BE0-4743-B298-30582EA7E180} = {0109F9EF-245B-4557-A3A1-11B26017C140}
 		{6535074C-483F-44EC-A7DA-6F92404462DF} = {10EC822B-9BE0-4743-B298-30582EA7E180}
+		{481BA4E6-7E59-48A4-BAAD-80A1EF5EE0DE} = {0109F9EF-245B-4557-A3A1-11B26017C140}
+		{E3126FEB-FAE7-4D15-8667-48CC5F03E0D1} = {481BA4E6-7E59-48A4-BAAD-80A1EF5EE0DE}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F4944A77-03B7-4E34-BE82-63CC65F6A815}
