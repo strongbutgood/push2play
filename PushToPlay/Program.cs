@@ -13,33 +13,87 @@ namespace PushToPlay
 	{
 		static async Task Main(string[] args)
 		{
-			Console.WriteLine("===> Push to Play <===");
-			Console.WriteLine();
-			var opts = Nito.OptionParsing.CommandLineOptionsParser.Parse<ProgramOptions>(args);
-			var source = opts.Source;
-			while (string.IsNullOrWhiteSpace(source))
+			bool cancel = false;
+			Console.CancelKeyPress += (s, e) =>
 			{
-				Console.WriteLine("Enter source path: ");
-				source = Console.ReadLine();
-			}
-			var ports = System.IO.Ports.SerialPort.GetPortNames();
-			var port = opts.Port;
-			while (string.IsNullOrWhiteSpace(port) || !ports.Contains(port))
+				cancel = true;
+				e.Cancel = true;
+			};
+			while (!cancel)
 			{
-				Console.WriteLine("Available ports are:");
-				for (int i = 0; i < ports.Length; i++)
+				Console.WriteLine("===> Push to Play <===");
+				Console.WriteLine();
+				Console.WriteLine("# Instructions:");
+				Console.WriteLine("#  First provide any missing settings");
+				Console.WriteLine("#   such as what video to play");
+				Console.WriteLine("#   or what USB port the button uses,");
+				Console.WriteLine("#   then press the button to play the video.");
+				Console.WriteLine("#");
+				Console.WriteLine("#  You can close the program at any time");
+				Console.WriteLine("#   by pressing CTRL + C (once or twice)");
+				Console.WriteLine("#   or reset the program with new settings");
+				Console.WriteLine("#   by pressing ESCAPE.");
+				Console.WriteLine("#");
+				Console.WriteLine("#  Enjoy!!");
+				Console.WriteLine("#");
+				Console.WriteLine();
+				var opts = Nito.OptionParsing.CommandLineOptionsParser.Parse<ProgramOptions>(args);
+				var source = opts.Source;
+				while (!cancel && string.IsNullOrWhiteSpace(source))
 				{
-					Console.WriteLine($"{i + 1}) {ports[i]}");
+					Console.WriteLine("Enter source path: ");
+					source = Console.ReadLine();
 				}
-				Console.WriteLine($"Select a port (1-{ports.Length}): ");
-				port = Console.ReadLine();
-				if (!ports.Contains(port) && int.TryParse(port, out var idx) && idx > 0 && idx <= ports.Length)
+				if (cancel)
+					break;
+				var ports = System.IO.Ports.SerialPort.GetPortNames();
+				var port = opts.Port;
+				while (!cancel && (string.IsNullOrWhiteSpace(port) || !ports.Contains(port)))
 				{
-					port = ports[idx - 1];
+					Console.WriteLine("Available ports are:");
+					for (int i = 0; i < ports.Length; i++)
+					{
+						Console.WriteLine($"{i + 1}) {ports[i]}");
+					}
+					Console.WriteLine($"Select a port (1-{ports.Length}): ");
+					port = Console.ReadLine();
+					if (!ports.Contains(port) && int.TryParse(port, out var idx) && idx > 0 && idx <= ports.Length)
+					{
+						port = ports[idx - 1];
+					}
+					ports = System.IO.Ports.SerialPort.GetPortNames();
 				}
-				ports = System.IO.Ports.SerialPort.GetPortNames();
+				if (cancel)
+					break;
+				var coord = new Coordinator(new PicoSerial(port), new VLCPlayer(), new ConsoleLogger() { LogLevel = opts.LogLevel }, source);
+				var cts = new CancellationTokenSource();
+				Console.WriteLine($"Press escape at any time to reset.");
+				var ptpTask = coord.ActivateAsync(cts.Token);
+				while (true)
+				{
+					if (cancel || Program.ReadKeyIfAvailable(ConsoleKey.Escape))
+					{
+						cts.Cancel();
+						await ptpTask;
+						break;
+					}
+					await Task.Delay(10);
+				}
+				//await ptp(source, port, CancellationToken.None);
 			}
-			await ptp(source, port, CancellationToken.None);
+			Console.WriteLine("Closing program...");
+			Thread.Sleep(1000);
+		}
+
+		static bool ReadKeyIfAvailable(ConsoleKey key)
+		{
+			if (Console.KeyAvailable)
+			{
+				var read = Console.ReadKey(true);
+				if (read.Key == key)
+					return true;
+			}
+			return false;
 		}
 
 		static async Task ptp(string source, string port, CancellationToken token)
@@ -124,7 +178,7 @@ namespace PushToPlay
 				try
 				{
 					await Task.Delay(1500);
-					await serial.WriteLine("H", token);
+					await serial.WriteLineAsync("H", token);
 				}
 				catch (OperationCanceledException)
 				{
@@ -162,13 +216,13 @@ namespace PushToPlay
 				};
 				Console.WriteLine($"Playing at {DateTime.Now}");
 				proc.Start();
-				await serial.WriteLine("1", token);
+				await serial.WriteLineAsync("1", token);
 				await Task.Delay(100, token);
 
 				await tcs.Task;
 				Console.WriteLine($"Done at {DateTime.Now}");
 
-				while (!await serial.WriteLine("100", token) || getState() == 2)
+				while (!await serial.WriteLineAsync("100", token) || getState() == 2)
 				{
 					// repeat until the finish is received
 					await Task.Delay(1500, token);
